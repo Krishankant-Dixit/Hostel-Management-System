@@ -5,7 +5,15 @@ const loadInitialState = () => {
   const localData = localStorage.getItem('hms_state');
   if (localData) {
     try {
-      return JSON.parse(localData);
+      const parsed = JSON.parse(localData);
+      if (parsed.users) {
+        parsed.users = parsed.users.map((user) => ({
+          ...user,
+          password: user.password || `${user.id.replace('usr-', '')}123`
+        }));
+      }
+      parsed.currentUser = null;
+      return parsed;
     } catch (e) {
       console.error("Failed to parse local state, loading default seed data", e);
     }
@@ -13,12 +21,12 @@ const loadInitialState = () => {
 
   // --- Seed Data ---
   const defaultUsers = [
-    { id: 'usr-admin', email: 'admin@hms.local', fullName: 'System Admin', role: 'admin', phone: '9999999999', avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100' },
-    { id: 'usr-warden', email: 'warden@hms.local', fullName: 'Dr. Robert Carter', role: 'warden', phone: '9888888888', avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100' },
-    { id: 'usr-staff', email: 'staff@hms.local', fullName: 'Marcus Vance', role: 'staff', phone: '9777777777', avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100' },
-    { id: 'usr-john', email: 'john@student.local', fullName: 'John Doe', role: 'student', phone: '9876543210', avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100' },
-    { id: 'usr-jane', email: 'jane@student.local', fullName: 'Jane Smith', role: 'student', phone: '9876543211', avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100' },
-    { id: 'usr-alan', email: 'alan@student.local', fullName: 'Alan Turing', role: 'student', phone: '9876543212', avatar: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=100' }
+    { id: 'usr-admin', email: 'admin@hms.local', password: 'admin123', fullName: 'System Admin', role: 'admin', phone: '9999999999', avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100' },
+    { id: 'usr-warden', email: 'warden@hms.local', password: 'warden123', fullName: 'Dr. Robert Carter', role: 'warden', phone: '9888888888', avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100' },
+    { id: 'usr-staff', email: 'staff@hms.local', password: 'staff123', fullName: 'Marcus Vance', role: 'staff', phone: '9777777777', avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100' },
+    { id: 'usr-john', email: 'john@student.local', password: 'john123', fullName: 'John Doe', role: 'student', phone: '9876543210', avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100' },
+    { id: 'usr-jane', email: 'jane@student.local', password: 'jane123', fullName: 'Jane Smith', role: 'student', phone: '9876543211', avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100' },
+    { id: 'usr-alan', email: 'alan@student.local', password: 'alan123', fullName: 'Alan Turing', role: 'student', phone: '9876543212', avatar: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=100' }
   ];
 
   const defaultStudentDetails = [
@@ -140,7 +148,7 @@ const loadInitialState = () => {
     documents: defaultDocuments,
     mess: defaultMess,
     emergencyContacts: defaultEmergencyContacts,
-    currentUser: defaultUsers.find(u => u.email === 'admin@hms.local'), // Default login is Admin
+    currentUser: null,
     searchQuery: '',
     selectedMobileTab: 'home',
     selectedMobileScreen: 'dashboard' // dashboard or room-details
@@ -157,8 +165,12 @@ export const hmsSlice = createSlice({
   reducers: {
     // Auth & Profile
     login: (state, action) => {
-      const { email } = action.payload;
-      const user = state.users.find(u => u.email.toLowerCase() === email.toLowerCase());
+      const { userId = '', password = '' } = action.payload || {};
+      const normalizedUserId = userId.trim().toLowerCase();
+      const user = state.users.find(u =>
+        (u.id.toLowerCase() === normalizedUserId || u.email.toLowerCase() === normalizedUserId) &&
+        u.password === password
+      );
       if (user) {
         state.currentUser = user;
         saveState(state);
@@ -266,11 +278,42 @@ export const hmsSlice = createSlice({
     // Room Allocation
     allocateRoom: (state, action) => {
       const { studentId, roomId, applicationId } = action.payload;
-      
-      // Deactivate other allocations for the student
+
+      const targetRoom = state.rooms.find(r => r.id === roomId);
+      if (!targetRoom || targetRoom.status === 'Under Maintenance') {
+        saveState(state);
+        return;
+      }
+
+      const activeAllocation = state.allocations.find(a => a.studentId === studentId && a.isActive);
+      if (activeAllocation && activeAllocation.roomId === roomId) {
+        if (applicationId) {
+          const app = state.applications.find(a => a.id === applicationId);
+          if (app) app.status = 'allocated';
+        }
+        saveState(state);
+        return;
+      }
+
+      // Deactivate other allocations for the student and free the previous room if needed
       state.allocations.forEach(alc => {
         if (alc.studentId === studentId) alc.isActive = false;
       });
+
+      if (activeAllocation) {
+        const previousRoom = state.rooms.find(r => r.id === activeAllocation.roomId);
+        if (previousRoom) {
+          previousRoom.currentOccupancy = Math.max(0, previousRoom.currentOccupancy - 1);
+          if (previousRoom.status !== 'Under Maintenance') {
+            previousRoom.status = previousRoom.currentOccupancy >= previousRoom.capacity ? 'Occupied' : 'Available';
+          }
+        }
+      }
+
+      if (targetRoom.currentOccupancy >= targetRoom.capacity) {
+        saveState(state);
+        return;
+      }
 
       // Create new allocation
       state.allocations.push({
@@ -283,11 +326,10 @@ export const hmsSlice = createSlice({
       });
 
       // Increment occupancy
-      const room = state.rooms.find(r => r.id === roomId);
-      if (room) {
-        room.currentOccupancy += 1;
-        if (room.currentOccupancy >= room.capacity) {
-          room.status = 'Occupied';
+      if (targetRoom) {
+        targetRoom.currentOccupancy = Math.min(targetRoom.capacity, targetRoom.currentOccupancy + 1);
+        if (targetRoom.status !== 'Under Maintenance') {
+          targetRoom.status = targetRoom.currentOccupancy >= targetRoom.capacity ? 'Occupied' : 'Available';
         }
       }
 
@@ -295,8 +337,7 @@ export const hmsSlice = createSlice({
       const details = state.studentDetails.find(d => d.userId === studentId);
       if (details) {
         details.roomId = roomId;
-        const rm = state.rooms.find(r => r.id === roomId);
-        if (rm) details.hostelId = rm.hostelId;
+        details.hostelId = targetRoom.hostelId;
       }
 
       // Update application
@@ -310,7 +351,7 @@ export const hmsSlice = createSlice({
         id: `ntf-${Date.now()}`,
         userId: studentId,
         title: 'Room Allocated',
-        message: `Warden has allocated Room ${room?.roomNumber || ''} to you in ${state.hostels.find(h => h.id === room?.hostelId)?.name || ''}.`,
+        message: `Warden has allocated Room ${targetRoom.roomNumber} to you in ${state.hostels.find(h => h.id === targetRoom.hostelId)?.name || ''}.`,
         type: 'room',
         isRead: false,
         createdAt: new Date().toISOString()
@@ -327,7 +368,9 @@ export const hmsSlice = createSlice({
         const room = state.rooms.find(r => r.id === allocation.roomId);
         if (room) {
           room.currentOccupancy = Math.max(0, room.currentOccupancy - 1);
-          room.status = 'Available';
+          if (room.status !== 'Under Maintenance') {
+            room.status = room.currentOccupancy >= room.capacity ? 'Occupied' : 'Available';
+          }
         }
 
         const details = state.studentDetails.find(d => d.userId === studentId);

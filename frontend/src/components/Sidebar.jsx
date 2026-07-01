@@ -45,7 +45,7 @@ const menuItems = [
   { id: 'profile', name: 'Admin Profile', icon: User }
 ];
 
-export default function Sidebar({ activeTab, setActiveTab }) {
+export default function Sidebar({ activeTab, setActiveTab, isOpen = true, onClose }) {
   const dispatch = useDispatch();
   const currentUser = useSelector((state) => state.hms.currentUser);
 
@@ -54,16 +54,25 @@ export default function Sidebar({ activeTab, setActiveTab }) {
   };
 
   return (
-    <aside className="w-[260px] h-screen bg-white border-r border-[#E5E7EB] flex flex-col fixed left-0 top-0 z-20">
+    <aside className={`fixed inset-y-0 left-0 z-30 flex w-[280px] max-w-[85vw] flex-col border-r border-[#E5E7EB] bg-white shadow-2xl transition-transform duration-300 lg:w-[260px] lg:translate-x-0 lg:shadow-none ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
       {/* Logo Area */}
-      <div className="p-6 border-b border-[#E5E7EB] flex items-center gap-3">
-        <div className="bg-[#4F46E5] text-white p-2 rounded-lg shadow-sm">
-          <Building className="w-6 h-6" />
+      <div className="p-5 sm:p-6 border-b border-[#E5E7EB] flex items-start justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="bg-[#4F46E5] text-white p-2 rounded-lg shadow-sm">
+            <Building className="w-6 h-6" />
+          </div>
+          <div>
+            <h1 className="text-base font-bold text-gray-900 leading-none">Hostel</h1>
+            <p className="text-xs text-gray-500 font-medium mt-0.5">Management System</p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-base font-bold text-gray-900 leading-none">Hostel</h1>
-          <p className="text-xs text-gray-500 font-medium mt-0.5">Management System</p>
-        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="lg:hidden rounded-lg px-2 py-1 text-xs font-bold text-gray-500 hover:bg-gray-100 hover:text-gray-900"
+        >
+          Close
+        </button>
       </div>
 
       {/* Menu Area */}
@@ -74,7 +83,10 @@ export default function Sidebar({ activeTab, setActiveTab }) {
           return (
             <button
               key={item.id}
-              onClick={() => setActiveTab(item.id)}
+              onClick={() => {
+                setActiveTab(item.id);
+                if (onClose) onClose();
+              }}
               className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
                 isActive
                   ? 'bg-[#4F46E5] text-white glow-effect'
@@ -89,7 +101,7 @@ export default function Sidebar({ activeTab, setActiveTab }) {
       </nav>
 
       {/* Demo Switcher & Profile Area */}
-      <div className="p-4 border-t border-[#E5E7EB] bg-gray-50 flex flex-col gap-3">
+      <div className="p-4 border-t border-[#E5E7EB] bg-gray-50 flex flex-col gap-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
         {/* Role Switcher */}
         <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-xl border border-[#E5E7EB] shadow-sm">
           <ArrowRightLeft className="w-4 h-4 text-[#4F46E5]" />

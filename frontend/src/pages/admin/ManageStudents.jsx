@@ -96,7 +96,7 @@ export default function ManageStudents() {
                         <button
                           onClick={() => {
                             setSelectedStudent(st);
-                            const avail = rooms.find((r) => r.status === 'Available');
+                              const avail = rooms.find((r) => r.status !== 'Under Maintenance' && r.currentOccupancy < r.capacity);
                             if (avail) setRoomIdToAllocate(avail.id);
                             setShowAllocateModal(true);
                           }}
@@ -128,7 +128,7 @@ export default function ManageStudents() {
                 onChange={(e) => setRoomIdToAllocate(e.target.value)}
                 className="w-full h-10 px-3 border border-gray-200 rounded-xl bg-white"
               >
-                {rooms.filter(r => r.status === 'Available').map((r) => {
+                {rooms.filter(r => r.status !== 'Under Maintenance' && r.currentOccupancy < r.capacity).map((r) => {
                   const hostelName = state.hostels.find(h => h.id === r.hostelId)?.name || 'Hostel';
                   return (
                     <option key={r.id} value={r.id}>

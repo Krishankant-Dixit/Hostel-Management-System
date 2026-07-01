@@ -757,12 +757,12 @@ export default function MobileSimulator() {
   };
 
   return (
-    <div className="flex flex-col items-center justify-center p-6 bg-gray-50/50 border-l border-gray-200 h-full w-[360px] flex-shrink-0">
-      <h3 className="text-xs uppercase font-extrabold tracking-widest text-gray-400 mb-4 flex items-center gap-1.5">
+    <div className="hidden xl:flex flex-col items-center justify-center p-4 2xl:p-6 bg-gray-50/50 border-l border-gray-200 h-full w-full max-w-[380px] flex-shrink-0 overflow-hidden">
+      <h3 className="text-[10px] sm:text-xs uppercase font-extrabold tracking-widest text-gray-400 mb-4 flex items-center gap-1.5 text-center">
         <Tv className="w-4 h-4 text-[#4F46E5]" /> Live App Simulator
       </h3>
       {/* Device Bezel Outline */}
-      <div className="w-[300px] h-[580px] bg-gray-900 rounded-[40px] p-2.5 shadow-2xl relative border-4 border-gray-800/80 flex flex-col select-none">
+      <div className="w-full max-w-[300px] h-[min(580px,calc(100vh-160px))] bg-gray-900 rounded-[40px] p-2.5 shadow-2xl relative border-4 border-gray-800/80 flex flex-col select-none">
         {/* Notch */}
         <div className="w-24 h-4 bg-gray-900 absolute top-2.5 left-1/2 -translate-x-1/2 rounded-b-xl z-50 flex items-center justify-center">
           <div className="w-10 h-1 bg-gray-800 rounded-full mb-1" />
