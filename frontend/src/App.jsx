@@ -3,6 +3,7 @@ import { useSelector, useDispatch } from 'react-redux';
 import Sidebar from './components/Sidebar';
 import Navbar from './components/Navbar';
 import MobileSimulator from './components/MobileSimulator';
+import AuthPage from './pages/AuthPage';
 
 // Admin Pages
 import AdminDashboard from './pages/admin/AdminDashboard';
@@ -52,6 +53,10 @@ export default function App() {
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [activeTab, setActiveTab] = useState('dashboard');
+
+  if (!currentUser) {
+    return <AuthPage />;
+  }
 
   // --- Dynamic Tab Render Controller ---
   const renderMainContent = () => {
@@ -265,6 +270,29 @@ export default function App() {
 
   // --- HOSTEL APPLICATION PAGE ---
   const renderApplicationsPage = () => {
+    const assignableRooms = state.rooms.filter(
+      room => room.status !== 'Under Maintenance' && room.currentOccupancy < room.capacity
+    );
+
+    const pickBestRoom = (application, roomPool = assignableRooms) => {
+      const preferredRoom = roomPool.find(room =>
+        room.hostelId === application.preferredHostelId &&
+        (!application.preferredRoomType || room.roomType.toLowerCase().includes(application.preferredRoomType.toLowerCase()))
+      );
+
+      return preferredRoom || roomPool[0] || null;
+    };
+
+    const allocateApplicationToRoom = (application, room) => {
+      if (!room) {
+        toast.error('No assignable rooms available.');
+        return;
+      }
+
+      dispatch(allocateRoom({ studentId: application.studentId, roomId: room.id, applicationId: application.id }));
+      toast.success(`Allocated Room ${room.roomNumber} to ${state.users.find(u => u.id === application.studentId)?.fullName || 'student'}`);
+    };
+
     return (
       <div className="space-y-6">
         <div>
@@ -314,13 +342,7 @@ export default function App() {
                       )}
                       {app.status === 'approved' && (
                         <button onClick={() => {
-                          const room = state.rooms.find(r => r.status === 'Available');
-                          if (room) {
-                            dispatch(allocateRoom({ studentId: app.studentId, roomId: room.id, applicationId: app.id }));
-                            toast.success('Allocated Room ' + room.roomNumber);
-                          } else {
-                            toast.error('No available rooms!');
-                          }
+                          allocateApplicationToRoom(app, pickBestRoom(app));
                         }} className="text-[10px] bg-[#4F46E5] text-white font-bold px-2 py-1 rounded-lg">Allocate Room</button>
                       )}
                     </td>
@@ -336,26 +358,226 @@ export default function App() {
 
   // --- ALLOCATION PAGE ---
   const renderAllocationPage = () => {
+    const approvedApplications = state.applications.filter(app => app.status === 'approved');
+    const assignableRooms = state.rooms.filter(
+      room => room.status !== 'Under Maintenance' && room.currentOccupancy < room.capacity
+    );
+    const activeAllocations = state.allocations.filter(allocation => allocation.isActive);
+
+    const pickBestRoom = (application, roomPool = assignableRooms) => {
+      const preferredRoom = roomPool.find(room =>
+        room.hostelId === application.preferredHostelId &&
+        (!application.preferredRoomType || room.roomType.toLowerCase().includes(application.preferredRoomType.toLowerCase()))
+      );
+
+      return preferredRoom || roomPool[0] || null;
+    };
+
+    const allocateApplicationToRoom = (application, room, silent = false) => {
+      if (!room) {
+        if (!silent) toast.error('No assignable rooms available.');
+        return false;
+      }
+
+      dispatch(allocateRoom({ studentId: application.studentId, roomId: room.id, applicationId: application.id }));
+      if (!silent) {
+        toast.success(`Allocated Room ${room.roomNumber} to ${state.users.find(u => u.id === application.studentId)?.fullName || 'student'}`);
+      }
+      return true;
+    };
+
+    const runSmartAllocation = () => {
+      if (approvedApplications.length === 0 || assignableRooms.length === 0) {
+        toast.error('No approved applications or assignable rooms are available.');
+        return;
+      }
+
+      const roomPool = [...assignableRooms];
+      let allocationCount = 0;
+
+      approvedApplications.forEach(application => {
+        const room = pickBestRoom(application, roomPool);
+        if (!room) return;
+
+        const roomIndex = roomPool.findIndex(candidate => candidate.id === room.id);
+        if (roomIndex !== -1) roomPool.splice(roomIndex, 1);
+
+        if (allocateApplicationToRoom(application, room, true)) {
+          allocationCount += 1;
+        }
+      });
+
+      if (allocationCount > 0) {
+        toast.success(`Allocated ${allocationCount} room${allocationCount === 1 ? '' : 's'} successfully!`);
+      } else {
+        toast.error('No approved applications matched the available rooms.');
+      }
+    };
+
     return (
       <div className="space-y-6">
         <div>
           <h2 className="text-xl font-black text-gray-900">Room Allocations</h2>
           <p className="text-xs text-gray-500 font-semibold mt-0.5">Allocate rooms automatically or manually.</p>
         </div>
-        <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-soft text-center max-w-md mx-auto space-y-4">
-          <HelpCircle className="w-12 h-12 text-[#4F46E5] mx-auto" />
-          <h3 className="font-bold text-gray-800">Smart Auto Allocation</h3>
-          <p className="text-xs text-gray-500 leading-relaxed">Runs automatic allocation algorithms based on student gender, course department, matching year levels, and room type availability preferences.</p>
-          <button onClick={() => {
-            const pendingApp = state.applications.find(a => a.status === 'approved');
-            const room = state.rooms.find(r => r.status === 'Available');
-            if (pendingApp && room) {
-              dispatch(allocateRoom({ studentId: pendingApp.studentId, roomId: room.id, applicationId: pendingApp.id }));
-              toast.success(`Automatically allocated Room ${room.roomNumber} to student!`);
-            } else {
-              toast.error('No pending approved applications matching available rooms.');
-            }
-          }} className="w-full py-2.5 bg-[#4F46E5] text-white font-bold text-xs rounded-xl shadow-md hover:bg-[#4338CA] transition-all">Run Smart Allocation</button>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-soft">
+            <p className="text-[10px] uppercase font-bold text-gray-400">Approved Applications</p>
+            <p className="text-2xl font-black text-gray-900 mt-1">{approvedApplications.length}</p>
+            <p className="text-xs text-gray-500 mt-1">Ready for allocation</p>
+          </div>
+          <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-soft">
+            <p className="text-[10px] uppercase font-bold text-gray-400">Assignable Rooms</p>
+            <p className="text-2xl font-black text-gray-900 mt-1">{assignableRooms.length}</p>
+            <p className="text-xs text-gray-500 mt-1">Available, not full, not under maintenance</p>
+          </div>
+          <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-soft">
+            <p className="text-[10px] uppercase font-bold text-gray-400">Active Allocations</p>
+            <p className="text-2xl font-black text-gray-900 mt-1">{activeAllocations.length}</p>
+            <p className="text-xs text-gray-500 mt-1">Currently occupied room assignments</p>
+          </div>
+        </div>
+
+        <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-soft space-y-4">
+          <div className="flex items-start gap-3">
+            <HelpCircle className="w-11 h-11 text-[#4F46E5] flex-shrink-0" />
+            <div>
+              <h3 className="font-bold text-gray-800">Smart Auto Allocation</h3>
+              <p className="text-xs text-gray-500 leading-relaxed mt-1">Allocates approved applications to rooms that still have capacity. It prefers the application&apos;s hostel and room type, then falls back to the next assignable room.</p>
+            </div>
+          </div>
+          <button
+            onClick={runSmartAllocation}
+            className="w-full py-2.5 bg-[#4F46E5] text-white font-bold text-xs rounded-xl shadow-md hover:bg-[#4338CA] transition-all"
+          >
+            Run Smart Allocation
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-soft overflow-hidden min-w-0">
+            <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="font-bold text-gray-800 text-sm">Approved Applications</h3>
+              <span className="text-[10px] font-bold uppercase text-gray-400">{approvedApplications.length} waiting</span>
+            </div>
+            <div className="divide-y divide-gray-100">
+              {approvedApplications.length === 0 ? (
+                <p className="p-6 text-center text-xs text-gray-400">No approved applications ready for allocation.</p>
+              ) : approvedApplications.map(app => {
+                const student = state.users.find(user => user.id === app.studentId);
+                const bestRoom = pickBestRoom(app);
+                const hostel = state.hostels.find(h => h.id === app.preferredHostelId);
+
+                return (
+                  <div key={app.id} className="p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <img src={student?.avatar} className="w-10 h-10 rounded-full object-cover border" alt="" />
+                      <div className="min-w-0">
+                        <p className="font-bold text-gray-900 truncate">{student?.fullName}</p>
+                        <p className="text-[10px] text-gray-400">{hostel?.name || 'Any Hostel'} • {app.preferredRoomType}</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => allocateApplicationToRoom(app, bestRoom)}
+                      className="self-start md:self-center text-[10px] bg-[#EEF2FF] text-[#4F46E5] font-bold px-3 py-1.5 rounded-lg hover:bg-[#E0E7FF] transition-all"
+                    >
+                      Allocate {bestRoom ? `Room ${bestRoom.roomNumber}` : 'Next Room'}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-soft overflow-hidden min-w-0">
+            <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="font-bold text-gray-800 text-sm">Assignable Rooms</h3>
+              <span className="text-[10px] font-bold uppercase text-gray-400">{assignableRooms.length} rooms</span>
+            </div>
+            <div className="divide-y divide-gray-100">
+              {assignableRooms.length === 0 ? (
+                <p className="p-6 text-center text-xs text-gray-400">No rooms currently available for allocation.</p>
+              ) : assignableRooms.map(room => {
+                const hostelName = state.hostels.find(h => h.id === room.hostelId)?.name || 'Hostel';
+                return (
+                  <div key={room.id} className="p-4 flex items-center justify-between gap-3 text-xs">
+                    <div>
+                      <p className="font-bold text-gray-900">{hostelName} - Room {room.roomNumber}</p>
+                      <p className="text-gray-500 mt-0.5">{room.roomType} • Floor {room.floor}</p>
+                    </div>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-50 text-green-600 uppercase">
+                      {room.currentOccupancy}/{room.capacity}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-soft overflow-hidden min-w-0">
+          <div className="p-4 border-b border-gray-100 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <h3 className="font-bold text-gray-800 text-sm">Current Allocations</h3>
+            <span className="text-[10px] font-bold uppercase text-gray-400">{activeAllocations.length} active</span>
+          </div>
+          <div className="hidden md:block overflow-x-auto">
+            <table className="w-full text-left text-xs min-w-[720px]">
+              <thead>
+                <tr className="bg-gray-50 text-gray-400 font-bold uppercase border-b">
+                  <th className="p-4">Student</th>
+                  <th className="p-4">Room</th>
+                  <th className="p-4">Hostel</th>
+                  <th className="p-4">Allocated By</th>
+                  <th className="p-4">Date</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 font-semibold text-gray-700">
+                {activeAllocations.length === 0 ? (
+                  <tr>
+                    <td className="p-6 text-center text-gray-400" colSpan="5">No active room allocations yet.</td>
+                  </tr>
+                ) : activeAllocations.map(allocation => {
+                  const student = state.users.find(user => user.id === allocation.studentId);
+                  const room = state.rooms.find(r => r.id === allocation.roomId);
+                  const hostel = state.hostels.find(h => h.id === room?.hostelId);
+                  const allocatedBy = state.users.find(user => user.id === allocation.allocatedBy);
+
+                  return (
+                    <tr key={allocation.id}>
+                      <td className="p-4">{student?.fullName || 'Unknown Student'}</td>
+                      <td className="p-4">Room {room?.roomNumber || 'N/A'}</td>
+                      <td className="p-4">{hostel?.name || 'N/A'}</td>
+                      <td className="p-4">{allocatedBy?.fullName || 'System'}</td>
+                      <td className="p-4">{allocation.allocationDate}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="md:hidden divide-y divide-gray-100">
+            {activeAllocations.length === 0 ? (
+              <p className="p-6 text-center text-xs text-gray-400">No active room allocations yet.</p>
+            ) : activeAllocations.map(allocation => {
+              const student = state.users.find(user => user.id === allocation.studentId);
+              const room = state.rooms.find(r => r.id === allocation.roomId);
+              const hostel = state.hostels.find(h => h.id === room?.hostelId);
+              const allocatedBy = state.users.find(user => user.id === allocation.allocatedBy);
+
+              return (
+                <div key={allocation.id} className="p-4 space-y-2 text-xs">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="font-bold text-gray-900 truncate">{student?.fullName || 'Unknown Student'}</p>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-50 text-green-600 uppercase">Active</span>
+                  </div>
+                  <p className="text-gray-500">Room {room?.roomNumber || 'N/A'} • {hostel?.name || 'N/A'}</p>
+                  <p className="text-gray-500">Allocated by {allocatedBy?.fullName || 'System'} on {allocation.allocationDate}</p>
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
     );
@@ -910,22 +1132,36 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F5F7FB] flex">
+    <div className="min-h-screen bg-[#F5F7FB] flex overflow-x-hidden">
       {/* Dynamic Toaster Notification */}
       <Toaster position="top-right" toastOptions={{ duration: 3000, style: { background: '#363636', color: '#fff', fontSize: '12px', fontWeight: '600', borderRadius: '12px' } }} />
 
+      {sidebarOpen && (
+        <button
+          type="button"
+          aria-label="Close sidebar"
+          onClick={() => setSidebarOpen(false)}
+          className="fixed inset-0 z-20 bg-black/40 backdrop-blur-[2px] lg:hidden"
+        />
+      )}
+
       {/* 1. Left Sidebar Navigation */}
-      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
+      <Sidebar
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        isOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+      />
 
       {/* Main Workspace Frame container */}
-      <div className="flex-1 flex flex-col ml-[260px] min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 lg:ml-[260px]">
         {/* 2. Top Navbar */}
-        <Navbar toggleSidebar={() => setSidebarOpen(!sidebarOpen)} />
+        <Navbar toggleSidebar={() => setSidebarOpen(!sidebarOpen)} sidebarOpen={sidebarOpen} />
 
         {/* Inner flex layout combining Admin Page Content and Student Mobile Simulator */}
-        <div className="flex-1 flex overflow-hidden">
+        <div className="flex-1 flex flex-col xl:flex-row overflow-hidden">
           {/* Main Dashboard Content */}
-          <main className="flex-1 overflow-y-auto p-6 min-w-0">
+          <main className="flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-6 min-w-0">
             {renderMainContent()}
           </main>
 
